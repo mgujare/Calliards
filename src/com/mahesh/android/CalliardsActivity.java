@@ -132,7 +132,7 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 
 		@Override
 		public EngineOptions onCreateEngineOptions() {
-			Toast.makeText(this, "Touch the screen to add objects. Touch an object to shoot it up into the air.", Toast.LENGTH_LONG).show();
+			Toast.makeText(this, "Touch the screen to add Stryker. Swipe to give direction.", Toast.LENGTH_LONG).show();
 
 			this.mCamera = new Camera(0, 0, CAMERA_WIDTH, CAMERA_HEIGHT);
 
