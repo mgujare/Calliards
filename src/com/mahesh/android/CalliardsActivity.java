@@ -9,11 +9,16 @@ import org.andengine.engine.options.EngineOptions;
 import org.andengine.engine.options.ScreenOrientation;
 import org.andengine.engine.options.resolutionpolicy.RatioResolutionPolicy;
 import org.andengine.entity.primitive.Rectangle;
+import org.andengine.entity.scene.CameraScene;
 import org.andengine.entity.scene.IOnAreaTouchListener;
 import org.andengine.entity.scene.IOnSceneTouchListener;
 import org.andengine.entity.scene.ITouchArea;
 import org.andengine.entity.scene.Scene;
 import org.andengine.entity.scene.background.Background;
+import org.andengine.entity.scene.menu.MenuScene;
+import org.andengine.entity.scene.menu.MenuScene.IOnMenuItemClickListener;
+import org.andengine.entity.scene.menu.item.IMenuItem;
+import org.andengine.entity.scene.menu.item.SpriteMenuItem;
 import org.andengine.entity.shape.Shape;
 import org.andengine.entity.sprite.AnimatedSprite;
 import org.andengine.entity.sprite.Sprite;
@@ -36,8 +41,11 @@ import org.andengine.opengl.vbo.VertexBufferObjectManager;
 import org.andengine.ui.activity.SimpleBaseGameActivity;
 import org.andengine.util.time.TimeConstants;
 
+import android.content.Intent;
 import android.hardware.SensorManager;
+import android.opengl.GLES20;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.widget.Toast;
 
 import com.badlogic.gdx.math.Vector2;
@@ -45,7 +53,7 @@ import com.badlogic.gdx.physics.box2d.Body;
 import com.badlogic.gdx.physics.box2d.BodyDef.BodyType;
 import com.badlogic.gdx.physics.box2d.FixtureDef;
 
-public class CalliardsActivity extends SimpleBaseGameActivity implements IAccelerationListener, IOnSceneTouchListener, IOnAreaTouchListener  {
+public class CalliardsActivity extends SimpleBaseGameActivity implements IAccelerationListener, IOnSceneTouchListener, IOnAreaTouchListener, IOnMenuItemClickListener  {
 	// ===========================================================
 		// Constants
 		// ===========================================================
@@ -58,12 +66,15 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 	    private final float DEFAULT_VELOCITY = 50f;
 	    
 	   
-	   
+	    protected static final int MENU_RESET = 0;
+		protected static final int MENU_QUIT = MENU_RESET + 1;
+		protected static final int MENU_PAUSE = MENU_RESET + 2;
 
 		// ===========================================================
 		// Fields
 		// ===========================================================
 	    
+	    protected Camera mCamera;
 	    
         private static Sprite face;
 	    private static Body body;
@@ -95,6 +106,14 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 		private float mGravityY;
 
 		private Scene mScene;
+		
+		protected MenuScene mMenuScene;
+		private CameraScene mPauseScene;
+
+		private BitmapTextureAtlas mMenuTexture;
+		protected ITextureRegion mMenuResetTextureRegion;
+		protected ITextureRegion mMenuQuitTextureRegion;
+		protected ITextureRegion mPausedTextureRegion;
 
 		// ===========================================================
 		// Constructors
@@ -115,9 +134,9 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 		public EngineOptions onCreateEngineOptions() {
 			Toast.makeText(this, "Touch the screen to add objects. Touch an object to shoot it up into the air.", Toast.LENGTH_LONG).show();
 
-			final Camera camera = new Camera(0, 0, CAMERA_WIDTH, CAMERA_HEIGHT);
+			this.mCamera = new Camera(0, 0, CAMERA_WIDTH, CAMERA_HEIGHT);
 
-			return new EngineOptions(true, ScreenOrientation.LANDSCAPE_FIXED, new RatioResolutionPolicy(CAMERA_WIDTH, CAMERA_HEIGHT), camera);
+			return new EngineOptions(true, ScreenOrientation.LANDSCAPE_FIXED, new RatioResolutionPolicy(CAMERA_WIDTH, CAMERA_HEIGHT), this.mCamera);
 		}
 
 		@Override
@@ -139,11 +158,19 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 			this.mCircleFaceTextureRegion.add(mCoin2TextureRegion);
 			this.mCircleFaceTextureRegion.add(mCoin3TextureRegion);
 			this.mCircleFaceTextureRegion.add(mCoin4TextureRegion);
+			
+			this.mMenuTexture = new BitmapTextureAtlas(this.getTextureManager(), 256, 192, TextureOptions.BILINEAR);
+			this.mMenuResetTextureRegion = BitmapTextureAtlasTextureRegionFactory.createFromAsset(this.mMenuTexture, this, "menu_reset.png", 0, 0);
+			this.mMenuQuitTextureRegion = BitmapTextureAtlasTextureRegionFactory.createFromAsset(this.mMenuTexture, this, "menu_quit.png", 0, 50);
+			this.mPausedTextureRegion = BitmapTextureAtlasTextureRegionFactory.createFromAsset(this.mMenuTexture, this, "home.png", 0, 100);
+			this.mMenuTexture.load();
 		}
 
 		@Override
 		public Scene onCreateScene() {
 			this.mEngine.registerUpdateHandler(new FPSLogger());
+			
+			this.createMenuScene();
 
 			this.mPhysicsWorld = new PhysicsWorld(new Vector2(0, SensorManager.GRAVITY_EARTH), false);
 
@@ -330,11 +357,78 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 			this.disableAccelerationSensor();
 		}
 
-		
+		@Override
+		public boolean onKeyDown(final int pKeyCode, final KeyEvent pEvent) {
+			if(pKeyCode == KeyEvent.KEYCODE_MENU && pEvent.getAction() == KeyEvent.ACTION_DOWN) {
+				if(this.mScene.hasChildScene()) {
+					/* Remove the menu and reset it. */
+					this.mMenuScene.back();
+				} else {
+					/* Attach the menu. */
+					this.mScene.setChildScene(this.mMenuScene, false, true, true);
+				}
+				return true;
+			} else {
+				return super.onKeyDown(pKeyCode, pEvent);
+			}
+		}
+
+		@Override
+		public boolean onMenuItemClicked(final MenuScene pMenuScene, final IMenuItem pMenuItem, final float pMenuItemLocalX, final float pMenuItemLocalY) {
+			switch(pMenuItem.getID()) {
+				case MENU_RESET:
+					/* Restart the animation. */
+					this.mScene.reset();
+
+					/* Remove the menu and reset it. */
+					this.mScene.clearChildScene();
+					this.mMenuScene.reset();
+					return true;
+				case MENU_QUIT:
+					/* End Activity. */
+					finish();
+					return true;
+				case MENU_PAUSE:
+					/* Return to Main Activity */
+					
+					Intent intent = new Intent();
+	                intent.setClass(CalliardsActivity.this, MainActivity.class);
+	                startActivity(intent);
+					
+					
+					return true;
+					
+				default:
+					return false;
+			}
+		}
 		
 		// ===========================================================
 		// Methods
 		// ===========================================================
+		
+		
+		protected void createMenuScene() {
+			this.mMenuScene = new MenuScene(this.mCamera);
+
+			final SpriteMenuItem resetMenuItem = new SpriteMenuItem(MENU_RESET, this.mMenuResetTextureRegion, this.getVertexBufferObjectManager());
+			resetMenuItem.setBlendFunction(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+			this.mMenuScene.addMenuItem(resetMenuItem);
+
+			final SpriteMenuItem quitMenuItem = new SpriteMenuItem(MENU_QUIT, this.mMenuQuitTextureRegion, this.getVertexBufferObjectManager());
+			quitMenuItem.setBlendFunction(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+			this.mMenuScene.addMenuItem(quitMenuItem);
+			
+			final SpriteMenuItem pauseMenuItem = new SpriteMenuItem(MENU_PAUSE, this.mPausedTextureRegion, this.getVertexBufferObjectManager());
+			quitMenuItem.setBlendFunction(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+			this.mMenuScene.addMenuItem(pauseMenuItem);
+
+			this.mMenuScene.buildAnimations();
+
+			this.mMenuScene.setBackgroundEnabled(false);
+
+			this.mMenuScene.setOnMenuItemClickListener(this);
+		}
 
 		private void addFace(final float pX, final float pY) {
 			this.mFaceCount++;
