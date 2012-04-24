@@ -44,6 +44,7 @@ import org.andengine.util.time.TimeConstants;
 import android.content.Intent;
 import android.hardware.SensorManager;
 import android.opengl.GLES20;
+import android.os.AsyncTask;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.widget.Toast;
@@ -65,21 +66,30 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 	    private final float MAX_VELOCITY_CONST = 250f;
 	    private final float DEFAULT_VELOCITY = 50f;
 	    
+	    private static final int MAX_KILLER_COINS = 50;
+	    
 	   
 	    protected static final int MENU_RESET = 0;
 		protected static final int MENU_QUIT = MENU_RESET + 1;
 		protected static final int MENU_PAUSE = MENU_RESET + 2;
-
+		
+		
+		
+		
 		// ===========================================================
 		// Fields
 		// ===========================================================
 	    
 	    protected Camera mCamera;
 	    
+	    protected boolean mGameRunning;
+	    
         private static Sprite face;
 	    private static Body body;
 	    
 	    private static CopyOnWriteArrayList<Shape> coinSprites = new CopyOnWriteArrayList<Shape>();
+	    
+	    private static CopyOnWriteArrayList<Shape> killerCoinSprites = new CopyOnWriteArrayList<Shape>();
 
 		private BitmapTextureAtlas mBitmapTextureAtlas;
 		
@@ -91,6 +101,11 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 		private ITextureRegion mCoin3TextureRegion;
 		private ITextureRegion mCoin4TextureRegion;
 		private ITextureRegion mCoin5TextureRegion;
+		private ITextureRegion mCoin6TextureRegion;
+		private ITextureRegion mCoin7TextureRegion;
+		private ITextureRegion mCoin8TextureRegion;
+		private ITextureRegion mCoin9TextureRegion;
+		
 		private ITextureRegion kCoinTextureRegion;
 		private ArrayList<ITextureRegion> mCircleFaceTextureRegion = new ArrayList<ITextureRegion>();
 		
@@ -114,6 +129,7 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 		protected ITextureRegion mMenuResetTextureRegion;
 		protected ITextureRegion mMenuQuitTextureRegion;
 		protected ITextureRegion mPausedTextureRegion;
+		protected IUpdateHandler mHandler;
 
 		// ===========================================================
 		// Constructors
@@ -152,12 +168,23 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 			
 			this.kCoinTextureRegion = BitmapTextureAtlasTextureRegionFactory.createFromAsset(this.mBitmapTextureAtlas, this, "killer.png", 0, 160); // 64x32
 			
+			this.mCoin5TextureRegion = BitmapTextureAtlasTextureRegionFactory.createFromAsset(this.mBitmapTextureAtlas, this, "face_circle_4.png", 0, 192); // 64x32
+			this.mCoin6TextureRegion = BitmapTextureAtlasTextureRegionFactory.createFromAsset(this.mBitmapTextureAtlas, this, "face_circle_5.png", 0, 224); // 64x32
+			this.mCoin7TextureRegion = BitmapTextureAtlasTextureRegionFactory.createFromAsset(this.mBitmapTextureAtlas, this, "face_circle_6.png", 0, 256); // 64x32
+			this.mCoin8TextureRegion = BitmapTextureAtlasTextureRegionFactory.createFromAsset(this.mBitmapTextureAtlas, this, "face_circle_7.png", 0, 288); // 64x32
+			//this.mCoin9TextureRegion = BitmapTextureAtlasTextureRegionFactory.createFromAsset(this.mBitmapTextureAtlas, this, "face_circle_8.png", 0, 320); // 64x32
+			
 			this.mBitmapTextureAtlas.load();
 			
 			this.mCircleFaceTextureRegion.add(mCoin1TextureRegion);
 			this.mCircleFaceTextureRegion.add(mCoin2TextureRegion);
 			this.mCircleFaceTextureRegion.add(mCoin3TextureRegion);
 			this.mCircleFaceTextureRegion.add(mCoin4TextureRegion);
+			this.mCircleFaceTextureRegion.add(mCoin5TextureRegion);
+			this.mCircleFaceTextureRegion.add(mCoin6TextureRegion);
+			this.mCircleFaceTextureRegion.add(mCoin7TextureRegion);
+			this.mCircleFaceTextureRegion.add(mCoin8TextureRegion);
+			//this.mCircleFaceTextureRegion.add(mCoin9TextureRegion);
 			
 			this.mMenuTexture = new BitmapTextureAtlas(this.getTextureManager(), 256, 192, TextureOptions.BILINEAR);
 			this.mMenuResetTextureRegion = BitmapTextureAtlasTextureRegionFactory.createFromAsset(this.mMenuTexture, this, "menu_reset.png", 0, 0);
@@ -169,6 +196,8 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 		@Override
 		public Scene onCreateScene() {
 			this.mEngine.registerUpdateHandler(new FPSLogger());
+			
+			
 			
 			this.createMenuScene();
 
@@ -199,20 +228,33 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 
 			this.mScene.setOnAreaTouchListener(this);
 			
+			this.mGameRunning = true;
+			
+			
+			/* Important when re-launching Game play.
+			 * 
+			 */
+			
 			if(face!=null){
 				this.mScene.detachChild(face);
 				face.dispose();
 				face = null;
 			}
 			
+			
 			if(coinSprites.size() > 0)
 				coinSprites.removeAll(coinSprites);
-				
 			
+			if(killerCoinSprites.size() > 0)
+				coinSprites.removeAll(killerCoinSprites);
+			
+			//*************************************
+			
+			// Add numbered coins.
 			addCoins();
 			
 			/* The actual collision-checking. */
-			this.mScene.registerUpdateHandler(new IUpdateHandler() {
+			this.mHandler = new IUpdateHandler() {
 				@Override
 				public void reset() { }
 
@@ -223,7 +265,7 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 					
 					for(final Shape spriteA : coinSprites){
 					
-									if(spriteA.collidesWith(face)  ) {
+									if(spriteA.collidesWith(face) ) {
 											
 											if(index==0){
 														//Toast.makeText(CalliardsActivity.this, "Collision Detected with chld:", Toast.LENGTH_LONG).show();
@@ -234,19 +276,21 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 															mCoinCount--;
 														}
 														else {
-															//Add Killer coin.
+															//Add Killer coin and restrict it to MAX 50.
 															
+															if(killerCoinSprites.size() < MAX_KILLER_COINS){
 															
-															FixtureDef objectFixtureDef3 = PhysicsFactory.createFixtureDef(1, 0.5f, 0.5f);
-															Sprite killer_coin = new Sprite(200, 200, kCoinTextureRegion, CalliardsActivity.this.getVertexBufferObjectManager());
-															Body body = PhysicsFactory.createBoxBody(CalliardsActivity.this.mPhysicsWorld, killer_coin, BodyType.DynamicBody, objectFixtureDef3);
-															CalliardsActivity.this.mPhysicsWorld.registerPhysicsConnector(new PhysicsConnector(killer_coin, body, true, true));
-												
-																//face.animate(new long[]{200,200}, 0, 1, true);
-																killer_coin.setUserData(body);
-																CalliardsActivity.this.mScene.registerTouchArea(killer_coin);
-																CalliardsActivity.this.mScene.attachChild(killer_coin);
-															
+																FixtureDef objectFixtureDef3 = PhysicsFactory.createFixtureDef(1, 0.5f, 0.5f);
+																Sprite killer_coin = new Sprite(200, 200, kCoinTextureRegion, CalliardsActivity.this.getVertexBufferObjectManager());
+																Body body = PhysicsFactory.createBoxBody(CalliardsActivity.this.mPhysicsWorld, killer_coin, BodyType.DynamicBody, objectFixtureDef3);
+																CalliardsActivity.this.mPhysicsWorld.registerPhysicsConnector(new PhysicsConnector(killer_coin, body, true, true));
+													
+																	//face.animate(new long[]{200,200}, 0, 1, true);
+																	killer_coin.setUserData(body);
+																	CalliardsActivity.this.mScene.registerTouchArea(killer_coin);
+																	CalliardsActivity.this.mScene.attachChild(killer_coin);
+																	killerCoinSprites.add(killer_coin);
+															}
 														}
 														
 													} 
@@ -254,10 +298,26 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 										
 									index++;
 							
-					}		
+					}
+					
+						/*
+						for(final Shape spriteK : killerCoinSprites){
+								if(!face.isDisposed() ){
+									Log.i("CalliardsActivity","Face is not null");
+								if(spriteK.collidesWith(face)){
+									Log.i("CalliardsActivity","Striker collision");
+									CalliardsActivity.this.mGameRunning = false;
+									break;	
+										
+								}
+							}
+						}
+						*/
+					
 				}
-			});
+			};
 			
+			this.mScene.registerUpdateHandler(this.mHandler);
 		
 
 			return this.mScene;
@@ -459,7 +519,7 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 			 
 			
 			
-					for(int i=0;i<4;i++){
+					for(int i=0;i<this.mCircleFaceTextureRegion.size();i++){
 					
 						this.mCoinCount++;
 						
@@ -566,8 +626,25 @@ public class CalliardsActivity extends SimpleBaseGameActivity implements IAccele
 	            return velocity;
 	        }
  
-
+	        
+	        private void gameOver(){
+	        	
+	        	
+	        	//Toast.makeText(CalliardsActivity.this, "Game Over! Better luck next time!", Toast.LENGTH_SHORT).show();
+	        	//this.mScene.clearEntityModifiers();
+	        	//this.mEngine.clearUpdateHandlers();
+	        	finish();
+	        	
+	        }
+	        
+	        @Override
+	        public void onDestroy(){
+	        	super.onDestroy();
+	        }
+	        
 		// ===========================================================
 		// Inner and Anonymous Classes
 		// ===========================================================
+	        
+	        
 }
